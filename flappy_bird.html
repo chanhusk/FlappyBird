@@ -1,0 +1,383 @@
+X<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Flappy Bird Clone</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #70c5ce; /* Light blue sky */
+            font-family: 'Press Start 2P', cursive;
+            color: white;
+            overflow: hidden; /* Prevent scrollbars */
+            touch-action: manipulation; /* Disable double-tap zoom on mobile */
+        }
+        #gameCanvas {
+            border: 2px solid #000;
+            background-color: #70c5ce; /* Sky color, can be overridden by JS */
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            max-width: 100%;
+            max-height: 80vh; /* Ensure canvas fits on screen */
+        }
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #scoreDisplay, #highScoreDisplay {
+            font-size: 1.5em; /* Relative font size */
+            margin-bottom: 10px;
+            text-shadow: 2px 2px #333;
+        }
+        #startScreen, #gameOverScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 10;
+        }
+        #startScreen h2, #gameOverScreen h2 {
+            margin-top: 0;
+            font-size: 1.8em;
+        }
+        #gameOverScreen p {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+        }
+        .button {
+            background-color: #ff9800; /* Orange */
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1em;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 4px #e68900; /* Darker orange for 3D effect */
+            transition: all 0.1s ease;
+        }
+        .button:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px #e68900;
+        }
+        #instructions {
+            font-size: 0.8em;
+            margin-top: 15px;
+            color: #f0f0f0;
+        }
+        /* Hide scrollbars for the whole page */
+        html, body {
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="scoreDisplay">Score: 0</div>
+    <div id="highScoreDisplay">High Score: 0</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="startScreen">
+        <h2>Flappy Bird</h2>
+        <button id="startButton" class="button">Start Game</button>
+        <p id="instructions">Tap or Press Space to Fly</p>
+    </div>
+
+    <div id="gameOverScreen" style="display: none;">
+        <h2>Game Over!</h2>
+        <p id="finalScore">Your Score: 0</p>
+        <button id="restartButton" class="button">Restart</button>
+    </div>
+
+    <script>
+        // Game Canvas and Context
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // DOM Elements
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const highScoreDisplay = document.getElementById('highScoreDisplay');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const finalScoreDisplay = document.getElementById('finalScore');
+
+        // Game constants
+        let birdX, birdY, birdVelocity, birdAcceleration;
+        const birdSize = 20; // Bird is a square
+        const gravity = 0.3; // Adjusted for smoother fall
+        const jumpStrength = -6; // Adjusted for responsive jump
+        let pipeWidth, pipeGap, pipeSpeed;
+        let pipes = [];
+        let score = 0;
+        let highScore = localStorage.getItem('flappyBirdHighScore') || 0;
+        let gameStarted = false;
+        let gameOver = false;
+        let frameCount = 0; // For pipe generation timing
+
+        // Image assets (simple colored rectangles for now)
+        // Bird color
+        const birdColor = '#FFD700'; // Yellow
+        // Pipe color
+        const pipeColor = '#73BF2E'; // Green
+        const pipeBorderColor = '#5A9A25'; // Darker green
+
+        // Background elements
+        const bgSkyColor = '#70c5ce';
+        const bgGroundColor = '#ded895';
+        const groundHeight = 50; // Height of the ground strip
+
+        // Function to set canvas dimensions dynamically
+        function setCanvasDimensions() {
+            const aspectRatio = 9 / 16; // Common mobile aspect ratio (portrait)
+            let newWidth = Math.min(window.innerWidth * 0.9, 400); // Max width 400px or 90% of window
+            let newHeight = newWidth / aspectRatio;
+
+            // If calculated height is too much for the viewport, adjust based on height
+            if (newHeight > window.innerHeight * 0.75) {
+                newHeight = window.innerHeight * 0.75;
+                newWidth = newHeight * aspectRatio;
+            }
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            // Update game elements based on new dimensions
+            birdX = canvas.width / 4;
+            birdY = canvas.height / 2;
+            pipeWidth = canvas.width / 6; // Make pipes wider relative to canvas
+            pipeGap = canvas.height / 4.5; // Make gap larger
+            pipeSpeed = canvas.width / 150; // Scale speed with canvas width
+        }
+
+
+        // Initialize game variables
+        function initGame() {
+            setCanvasDimensions(); // Set canvas size first
+            birdY = canvas.height / 2;
+            birdVelocity = 0;
+            birdAcceleration = 0; // Not used if only gravity and jump
+            pipes = [];
+            score = 0;
+            frameCount = 0;
+            gameOver = false;
+            gameStarted = true;
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            scoreDisplay.textContent = `Score: ${score}`;
+            highScoreDisplay.textContent = `High Score: ${highScore}`;
+            loop();
+        }
+
+        // Bird jump action
+        function jump() {
+            if (!gameOver && gameStarted) {
+                birdVelocity = jumpStrength;
+            }
+        }
+
+        // Event listeners for input
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent default touch behavior (like scrolling or zooming)
+            jump();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault(); // Prevent page scrolling on space
+                if (!gameStarted) {
+                    initGame();
+                } else {
+                    jump();
+                }
+            }
+        });
+
+        // Start and Restart button listeners
+        startButton.addEventListener('click', initGame);
+        restartButton.addEventListener('click', initGame);
+
+
+        // Update game state
+        function update() {
+            if (gameOver) return;
+
+            // Bird physics
+            birdVelocity += gravity;
+            birdY += birdVelocity;
+
+            // Pipe movement and generation
+            frameCount++;
+            if (frameCount % Math.floor(120 / (pipeSpeed / 2)) === 0) { // Adjust pipe frequency based on speed
+                let gapY = Math.random() * (canvas.height - pipeGap - groundHeight - (pipeGap / 2)) + (pipeGap / 2); // Ensure gap is not too low or high
+                pipes.push({
+                    x: canvas.width,
+                    y: gapY, // Center of the gap
+                    passed: false
+                });
+            }
+
+            pipes.forEach(pipe => {
+                pipe.x -= pipeSpeed;
+            });
+
+            // Remove off-screen pipes
+            pipes = pipes.filter(pipe => pipe.x + pipeWidth > 0);
+
+            // Collision detection
+            // Ground collision
+            if (birdY + birdSize > canvas.height - groundHeight) {
+                birdY = canvas.height - groundHeight - birdSize;
+                birdVelocity = 0;
+                endGame();
+            }
+            // Sky collision
+            if (birdY < 0) {
+                birdY = 0;
+                birdVelocity = 0;
+                // Optional: end game on hitting sky, or just stop bird
+                // endGame();
+            }
+
+            // Pipe collision
+            pipes.forEach(pipe => {
+                // Check collision with top pipe
+                if (birdX < pipe.x + pipeWidth && birdX + birdSize > pipe.x &&
+                    birdY < pipe.y - pipeGap / 2) {
+                    endGame();
+                }
+                // Check collision with bottom pipe
+                if (birdX < pipe.x + pipeWidth && birdX + birdSize > pipe.x &&
+                    birdY + birdSize > pipe.y + pipeGap / 2) {
+                    endGame();
+                }
+
+                // Score update
+                if (!pipe.passed && pipe.x + pipeWidth < birdX) {
+                    score++;
+                    pipe.passed = true;
+                    scoreDisplay.textContent = `Score: ${score}`;
+                    if (score > highScore) {
+                        highScore = score;
+                        highScoreDisplay.textContent = `High Score: ${highScore}`;
+                        localStorage.setItem('flappyBirdHighScore', highScore);
+                    }
+                }
+            });
+        }
+
+        // Draw everything
+        function draw() {
+            // Clear canvas (sky)
+            ctx.fillStyle = bgSkyColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw bird
+            ctx.fillStyle = birdColor;
+            ctx.fillRect(birdX, birdY, birdSize, birdSize);
+            // Simple bird eye (optional)
+            ctx.fillStyle = 'white';
+            ctx.fillRect(birdX + birdSize * 0.6, birdY + birdSize * 0.2, birdSize * 0.3, birdSize * 0.3);
+            ctx.fillStyle = 'black';
+            ctx.fillRect(birdX + birdSize * 0.7, birdY + birdSize * 0.3, birdSize * 0.15, birdSize * 0.15);
+
+
+            // Draw pipes
+            pipes.forEach(pipe => {
+                ctx.fillStyle = pipeColor;
+                // Top pipe
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.y - pipeGap / 2);
+                // Bottom pipe
+                ctx.fillRect(pipe.x, pipe.y + pipeGap / 2, pipeWidth, canvas.height - (pipe.y + pipeGap / 2) - groundHeight);
+
+                // Pipe borders for a little depth
+                ctx.fillStyle = pipeBorderColor;
+                // Top pipe cap
+                ctx.fillRect(pipe.x - 5, pipe.y - pipeGap / 2 - 20, pipeWidth + 10, 20);
+                // Bottom pipe cap
+                ctx.fillRect(pipe.x - 5, pipe.y + pipeGap / 2, pipeWidth + 10, 20);
+            });
+
+            // Draw ground
+            ctx.fillStyle = bgGroundColor;
+            ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+            // Add some simple ground lines for texture
+            ctx.fillStyle = '#b9b280'; // Darker shade for lines
+            for (let i = 0; i < canvas.width; i += 20) {
+                ctx.fillRect(i, canvas.height - groundHeight + 5, 10, 5);
+                ctx.fillRect(i + 5, canvas.height - groundHeight + 15, 10, 5);
+            }
+
+            // Score is handled by HTML elements, but you could draw it on canvas too
+        }
+
+        // Game loop
+        let animationFrameId;
+        function loop() {
+            if (gameOver) {
+                cancelAnimationFrame(animationFrameId);
+                showGameOverScreen();
+                return;
+            }
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        // End game
+        function endGame() {
+            if (gameOver) return; // Prevent multiple calls
+            gameOver = true;
+            // Optional: sound effect
+            // console.log("Game Over! Score:", score);
+        }
+
+        function showGameOverScreen() {
+            finalScoreDisplay.textContent = `Your Score: ${score}`;
+            gameOverScreen.style.display = 'block';
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            // Store current game state if needed
+            const wasPlaying = gameStarted && !gameOver;
+
+            setCanvasDimensions(); // Recalculate dimensions
+
+            // If game was running, redraw. If not, it'll be handled by initGame.
+            if (wasPlaying) {
+                // Re-center bird or reset if preferred. For simplicity, just redraw.
+                birdY = Math.max(0, Math.min(canvas.height - groundHeight - birdSize, birdY)); // Keep bird within new bounds
+                draw(); // Redraw immediately with new dimensions
+            } else if (!gameStarted) {
+                // If on start screen, just ensure canvas is drawn correctly
+                ctx.fillStyle = bgSkyColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = bgGroundColor;
+                ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+            }
+        });
+
+        // Initial setup
+        setCanvasDimensions(); // Set initial canvas size
+        // Draw initial state (sky and ground) before game starts
+        ctx.fillStyle = bgSkyColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = bgGroundColor;
+        ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+        highScoreDisplay.textContent = `High Score: ${highScore}`; // Show high score on load
+
+    </script>
+</body>
+</html>
